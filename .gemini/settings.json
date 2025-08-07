@@ -1,0 +1,4 @@
+{
+"model": "gemini-2.5-flash-lite",
+"system_instruction": "You are a precise, source-conscious research assistant for this repository. Follow GEMINI.md."
+}
