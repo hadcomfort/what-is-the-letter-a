@@ -1,0 +1,33 @@
+name: Gemini Issue Triage
+on:
+  issues:
+    types: [opened, reopened, edited]
+  issue_comment:
+    types: [created]
+
+jobs:
+  triage:
+    if: |
+      (github.event_name == 'issues') ||
+      (github.event_name == 'issue_comment' &&
+       contains(github.event.comment.body, '@gemini-cli /triage') &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Gemini CLI
+        uses: google-github-actions/run-gemini-cli@v0.1.6
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: >
+            Triage the issue:
+            - Summarize the request
+            - Suggest labels (up to 3 from: triage-needed, research, bibliography, timeline, data, sources-needed, good-first-task, enhancement, documentation)
+            - Ask 1–2 clarifying questions if needed
+            - Link to possibly related open issues
+            Keep it concise and follow GEMINI.md.
