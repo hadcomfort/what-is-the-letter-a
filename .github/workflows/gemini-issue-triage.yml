@@ -7,7 +7,18 @@ on:
 
 jobs:
   triage:
-    if: github.event_name == 'issues' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gemini-cli /triage') && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR'))
+    # This job runs on new issues, or when a repo member comments "@gemini-cli /triage"
+    if: |
+      github.event_name == 'issues' || 
+      (
+        github.event_name == 'issue_comment' &&
+        contains(github.event.comment.body, '@gemini-cli /triage') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,6 +30,7 @@ jobs:
         id: gemini
         uses: google-github-actions/run-gemini-cli@v0.1.6
         env:
+          # The GitHub token is used by the gh CLI in the prompt
           GH_TOKEN: ${{ github.token }}
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
@@ -57,26 +69,40 @@ jobs:
               "system_instruction": "You triage GitHub issues: propose labels, ask brief questions, and use the gh CLI when available to apply labels and comment."
             }
 
-      - name: Fallback: apply labels/comment from JSON if needed
-        if: always()
+      - name: Fallback - apply labels/comment from JSON if needed
+        if: always() # This step runs even if the previous one fails
         env:
+          # This assumes the gemini step's output is named 'summary'.
+          # Change 'summary' if the action uses a different output key (e.g., 'response').
           SUMMARY: ${{ steps.gemini.outputs.summary }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          
+          # Extract the JSON object from the last line of the Gemini output
           json=$(printf "%s" "$SUMMARY" | grep -oP '\{.*\}$' | tail -n1 || true)
+          
           if [ -z "${json:-}" ]; then
-            echo "No JSON found in summary; nothing to do."
+            echo "No valid JSON object found in the output. Nothing to do."
             exit 0
           fi
+          
           echo "Parsed JSON: $json"
+          
+          # Safely extract labels and comment from the JSON
           labels=$(echo "$json" | jq -r '.labels | @csv' 2>/dev/null || echo "")
           comment=$(echo "$json" | jq -r '.comment // empty' 2>/dev/null || echo "")
+          
+          # Add labels if any were found
           if [ -n "$labels" ] && [ "$labels" != "null" ]; then
+            echo "Applying labels: $labels"
             echo "$labels" | tr -d '"' | tr ',' '\n' | while read -r label; do
               [ -n "$label" ] && gh issue edit ${{ github.event.issue.number }} --add-label "$label"
             done
           fi
+          
+          # Post a comment if one was found
           if [ -n "$comment" ]; then
+            echo "Posting comment."
             gh issue comment ${{ github.event.issue.number }} --body "$comment"
           fi
