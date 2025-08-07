@@ -1,95 +1,86 @@
 name: Gemini Issue Triage
 on:
-issues:
-types: [opened, reopened] # keep it tight to avoid token spend on edits
-issue_comment:
-types: [created]
+  issues:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
 
 jobs:
-triage:
-if: |
-github.event_name == 'issues' ||
-(github.event_name == 'issue_comment' &&
-contains(github.event.comment.body, '@gemini-cli /triage') &&
-(github.event.comment.author_association == 'OWNER' ||
-github.event.comment.author_association == 'MEMBER' ||
-github.event.comment.author_association == 'COLLABORATOR'))
-runs-on: ubuntu-latest
-permissions:
-contents: read
-issues: write
-steps:
-- uses: actions/checkout@v4
+  triage:
+    if: github.event_name == 'issues' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gemini-cli /triage') && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Triage issue with Gemini CLI
+        id: gemini
+        uses: google-github-actions/run-gemini-cli@v0.1.6
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: >
+            You are a GitHub triage assistant for this repository. Read the issue context below and act.
 
-  - name: Triage issue with Gemini CLI
-    id: gemini
-    uses: google-github-actions/run-gemini-cli@v0.1.6
-    env:
-      GH_TOKEN: ${{ github.token }}  # lets the assistant use gh to label/comment
-    with:
-      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-      prompt: >
-        You are a GitHub triage assistant for this repository. Read the issue context below and act.
+            Context:
+            - Repo: ${{ github.repository }}
+            - Issue #: ${{ github.event.issue.number }}
+            - Issue title: ${{ github.event.issue.title }}
+            - Issue body:
+            ---
+            ${{ github.event.issue.body }}
+            ---
+            - Trigger: ${{ github.event_name }} (action: ${{ github.event.action }})
 
-        Context:
-        - Repo: ${{ github.repository }}
-        - Issue #: ${{ github.event.issue.number }}
-        - Issue title: ${{ github.event.issue.title }}
-        - Issue body:
-        ---
-        ${{ github.event.issue.body }}
-        ---
-        - Trigger: ${{ github.event_name }} (action: ${{ github.event.action }})
+            Tasks:
+            1) Summarize the issue in 2–4 sentences.
+            2) Choose up to 3 labels from this set only:
+               [triage-needed, research, bibliography, timeline, data, sources-needed, good-first-task, enhancement, documentation].
+               If none clearly fit, choose triage-needed.
+            3) If info is missing, draft 1–2 concise clarifying questions.
+            4) If possible, use the GitHub CLI (gh) to:
+               - add the labels to this issue, and
+               - post a single comment containing your summary + clarifying questions.
+               The GH_TOKEN env var is available.
+            5) Regardless of whether you used gh, finish by outputting a single JSON object on the final line of your response with this structure:
+               {"labels": ["label1","label2"], "comment": "comment text"}.
 
-        Tasks:
-        1) Summarize the issue in 2–4 sentences.
-        2) Choose up to 3 labels from this set only:
-           [triage-needed, research, bibliography, timeline, data, sources-needed, good-first-task, enhancement, documentation].
-           If none clearly fit, choose triage-needed.
-        3) If info is missing, draft 1–2 concise clarifying questions.
-        4) If possible, use the GitHub CLI (gh) to:
-           - add the labels to this issue, and
-           - post a single comment containing your summary + clarifying questions.
-           The GH_TOKEN env var is available.
-        5) Regardless of whether you used gh, finish by outputting a single JSON object on the final line of your response with this structure:
-           {"labels": ["label1","label2"], "comment": "comment text"}.
+            Constraints:
+            - Be brief and actionable.
+            - Only use labels from the allowed set.
+            - Don’t remove any existing labels; only add.
 
-        Constraints:
-        - Be brief and actionable.
-        - Only use labels from the allowed set.
-        - Don’t remove any existing labels; only add.
+          settings: |
+            {
+              "model": "gemini-1.5-pro",
+              "temperature": 0.2,
+              "max_output_tokens": 800,
+              "system_instruction": "You triage GitHub issues: propose labels, ask brief questions, and use the gh CLI when available to apply labels and comment."
+            }
 
-      settings: |
-        {
-          "model": "gemini-1.5-pro",
-          "temperature": 0.2,
-          "max_output_tokens": 800,
-          "system_instruction": "You triage GitHub issues: propose labels, ask brief questions, and use the gh CLI when available to apply labels and comment."
-        }
-
-  - name: Fallback: apply labels/comment from JSON if needed
-    if: always()
-    env:
-      SUMMARY: ${{ steps.gemini.outputs.summary }}
-      GH_TOKEN: ${{ github.token }}
-    run: |
-      set -euo pipefail
-      # Extract the last JSON object from the summary (expects {"labels": [...], "comment": "..."})
-      json=$(printf "%s" "$SUMMARY" | grep -oP '\{.*\}$' | tail -n1 || true)
-      if [ -z "${json:-}" ]; then
-        echo "No JSON found in summary; nothing to do."
-        exit 0
-      fi
-      echo "Parsed JSON: $json"
-      labels=$(echo "$json" | jq -r '.labels | @csv' 2>/dev/null || echo "")
-      comment=$(echo "$json" | jq -r '.comment // empty' 2>/dev/null || echo "")
-      if [ -n "$labels" ] && [ "$labels" != "null" ]; then
-        # Convert CSV back to array and add each label
-        echo "$labels" | tr -d '"' | tr ',' '\n' | while read -r label; do
-          [ -n "$label" ] && gh issue edit ${{ github.event.issue.number }} --add-label "$label"
-        done
-      fi
-      if [ -n "$comment" ]; then
-        gh issue comment ${{ github.event.issue.number }} --body "$comment"
-      fi
+      - name: Fallback: apply labels/comment from JSON if needed
+        if: always()
+        env:
+          SUMMARY: ${{ steps.gemini.outputs.summary }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          json=$(printf "%s" "$SUMMARY" | grep -oP '\{.*\}$' | tail -n1 || true)
+          if [ -z "${json:-}" ]; then
+            echo "No JSON found in summary; nothing to do."
+            exit 0
+          fi
+          echo "Parsed JSON: $json"
+          labels=$(echo "$json" | jq -r '.labels | @csv' 2>/dev/null || echo "")
+          comment=$(echo "$json" | jq -r '.comment // empty' 2>/dev/null || echo "")
+          if [ -n "$labels" ] && [ "$labels" != "null" ]; then
+            echo "$labels" | tr -d '"' | tr ',' '\n' | while read -r label; do
+              [ -n "$label" ] && gh issue edit ${{ github.event.issue.number }} --add-label "$label"
+            done
+          fi
+          if [ -n "$comment" ]; then
+            gh issue comment ${{ github.event.issue.number }} --body "$comment"
+          fi
