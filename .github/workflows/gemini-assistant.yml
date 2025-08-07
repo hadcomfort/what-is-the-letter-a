@@ -1,0 +1,29 @@
+name: Gemini CLI Assistant
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  assist:
+    if: >
+      contains(github.event.comment.body, '@gemini-cli') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Gemini CLI
+        uses: google-github-actions/run-gemini-cli@v0.1.6
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: >
+            You are a repository-aware assistant for this project. Follow GEMINI.md strictly.
+            When asked to propose changes, prefer creating a new branch and a PR using gh.
+            Keep replies concise, source-aware, and actionable.
