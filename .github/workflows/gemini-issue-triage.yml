@@ -24,7 +24,6 @@ jobs:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           prompt: >
             You are a GitHub triage assistant for this repository. Read the issue context below and act.
-
             Context:
             - Repo: ${{ github.repository }}
             - Issue #: ${{ github.event.issue.number }}
@@ -34,7 +33,6 @@ jobs:
             ${{ github.event.issue.body }}
             ---
             - Trigger: ${{ github.event_name }} (action: ${{ github.event.action }})
-
             Tasks:
             1) Summarize the issue in 2–4 sentences.
             2) Choose up to 3 labels from this set only:
@@ -47,12 +45,10 @@ jobs:
                The GH_TOKEN env var is available.
             5) Regardless of whether you used gh, finish by outputting a single JSON object on the final line of your response with this structure:
                {"labels": ["label1","label2"], "comment": "comment text"}.
-
             Constraints:
             - Be brief and actionable.
             - Only use labels from the allowed set.
             - Don’t remove any existing labels; only add.
-
           settings: |
             {
               "model": "gemini-1.5-pro",
